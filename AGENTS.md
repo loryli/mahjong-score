@@ -5,7 +5,7 @@
 ## 项目概况
 - 四川麻将四人记账，单机热座，散场轧差 + 文字分享
 - 技术：Vue 3（免构建，本地 vendor）+ IndexedDB + Service Worker
-- 无后端、无构建步骤
+- 无后端、无构建步骤    
 
 ## 代码风格
 - JS / HTML / CSS 缩进 2 空格；Python 遵循 PEP8（4 空格）
