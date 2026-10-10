@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0b3d2e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>麻将计分</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <div id="app">
+
+    <!-- 首页 -->
+    <div v-if="screen==='home'">
+      <div class="hero">
+        <div class="logo">🀄</div>
+        <h1>麻将计分</h1>
+        <p>四川麻将 · 血战到底 · 四人间账</p>
+      </div>
+      <div class="wrap">
+        <div class="card" v-if="resumeGame">
+          <h2>有一场没打完</h2>
+          <p class="muted" style="margin-top:0">{{resumeGame.names.join(' · ')}}</p>
+          <button class="btn btn-primary" @click="continueGame">继续本场</button>
+        </div>
+
+        <div class="card">
+          <h2>新开局</h2>
+          <div class="grid-4" style="margin-bottom:12px">
+            <div class="field" v-for="i in 4" :key="i" style="margin:0">
+              <label>玩家 {{i}}</label>
+              <input v-model.trim="setup.names[i-1]" :placeholder="'第'+i+'位'" maxlength="6">
+            </div>
+          </div>
+          <div class="grid-2">
+            <div class="field"><label>底分 B</label>
+              <input type="number" inputmode="decimal" v-model.number="setup.B"></div>
+            <div class="field"><label>封顶番</label>
+              <input type="number" inputmode="numeric" v-model.number="setup.F"></div>
+            <div class="field"><label>雨倍率 R</label>
+              <input type="number" inputmode="decimal" v-model.number="setup.R"></div>
+            <div class="field"><label>每分 ¥</label>
+              <input type="number" inputmode="decimal" v-model.number="setup.K"></div>
+            <div class="field" style="grid-column:1/-1"><label>统一起始分</label>
+              <input type="number" inputmode="numeric" v-model.number="setup.startScore"></div>
+          </div>
+          <button class="btn btn-primary" @click="startGame">开始记账</button>
+          <p class="muted" style="margin:8px 0 0">底分/番/雨倍率在第一手后锁定</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 本场 -->
+    <div v-if="screen==='game' && game">
+      <div class="topbar">
+        <button class="back" @click="goHome">‹ 首页</button>
+        <div class="title">已记 {{hands.length}} 手</div>
+      </div>
+      <div class="wrap">
+        <div class="scoreboard">
+          <div class="player" v-for="(nm,i) in game.names" :key="i">
+            <div class="nm">{{nm}}</div>
+            <div class="sc" :class="cellClass(i)">{{totals[i]}}</div>
+          </div>
+        </div>
+        <div style="height:14px"></div>
+
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <h2 style="margin:0">每手明细</h2>
+            <button class="btn btn-ghost" style="width:auto;padding:7px 12px;font-size:14px"
+              :disabled="!hands.length" @click="undoLast">撤销上一手</button>
+          </div>
+          <div v-if="!hands.length" class="empty-tip">还没记账，点下方“记一手”开始</div>
+          <div v-for="h in hands" :key="h.id" class="hand-item" @click="openEdit(h)">
+            <div class="hand-head">
+              <span class="hand-seq">第 {{h.seq}} 手</span>
+              <span class="hand-time">{{fmtTime(h.time)}}</span>
+            </div>
+            <div class="hand-deltas">
+              <span v-for="i in 4" :key="i">
+                {{game.names[i-1]}}
+                <b :class="scoreClass(signedDelta(h,i-1))">{{signedDelta(h,i-1)}}</b>
+              </span>
+            </div>
+            <div class="hand-note" v-if="h.note">📝 {{h.note}}</div>
+          </div>
+        </div>
+
+        <button class="btn btn-danger" @click="endGame">散场结算</button>
+      </div>
+
+      <div class="bottombar">
+        <button class="btn btn-primary" @click="openEntry">＋ 记一手</button>
+      </div>
+    </div>
+
+    <!-- 记一手 / 编辑 -->
+    <div class="mask" v-if="entry.open" @click.self="closeEntry">
+      <div class="sheet">
+        <h2>{{entry.edit ? ('编辑第 ' + entry.hand.seq + ' 手') : '记一手'}}</h2>
+        <div class="delta-row" v-for="i in 4" :key="i">
+          <span class="nm">{{game.names[i-1]}}</span>
+          <input type="number" inputmode="numeric" v-model.number="entry.deltas[i-1]">
+        </div>
+        <div class="sum-line" :class="entryConserved ? 'sum-ok' : 'sum-bad'">
+          本手合计 {{entrySum}}（必须为 0 才能入账）
+        </div>
+        <div class="field">
+          <label>备注（可选）</label>
+          <input v-model="entry.note" placeholder="如：A 自摸极品" maxlength="20">
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-ghost" @click="closeEntry">取消</button>
+          <button class="btn btn-primary" :disabled="!entryConserved" @click="saveEntry">
+            {{entry.edit ? '保存修改' : '确认入账'}}
+          </button>
+        </div>
+        <button v-if="entry.edit" class="btn btn-danger" @click="removeCurrent">删除这一手</button>
+      </div>
+    </div>
+
+    <!-- 散场结算 -->
+    <div class="mask" v-if="settle.open" @click.self="closeSettle">
+      <div class="sheet">
+        <h2>散场结算</h2>
+        <div class="settle-row" v-for="i in 4" :key="i">
+          <span>{{game.names[i-1]}}</span>
+          <span>
+            <b :class="cellClass(i-1)" style="font-size:18px">{{signed(net[i-1])}} 分</b>
+            <span class="muted" style="margin-left:6px">¥{{Rules.yuan(net[i-1], game.rules.K)}}</span>
+          </span>
+        </div>
+        <div style="height:6px"></div>
+        <div v-if="!pays.length" class="pay-line">✅ 四人两清，无需转账</div>
+        <div v-for="(p,idx) in pays" :key="idx" class="pay-line">
+          {{game.names[p.from]}} → {{game.names[p.to]}}　¥{{Rules.yuan(p.points, game.rules.K)}}
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-ghost" @click="closeSettle">返回继续打</button>
+          <button class="btn btn-primary" @click="share">分享战绩</button>
+        </div>
+        <button class="btn btn-danger" @click="confirmEnd">结束本场并回首页</button>
+      </div>
+    </div>
+
+    <div class="toast" v-if="toast">{{toast}}</div>
+  </div>
+
+  <script src="assets/js/vendor/vue.global.prod.js"></script>
+  <script src="assets/js/rules.js"></script>
+  <script src="assets/js/db.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>
